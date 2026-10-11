@@ -455,7 +455,6 @@ export default function EnvironmentPage() {
                 onChange={(e) => setTitle(e.target.value)}
                 required
                 disabled={fallback}
-                placeholder="e.g. Custom multi-step approval for Org B"
               />
             </div>
             <div className="space-y-1">
