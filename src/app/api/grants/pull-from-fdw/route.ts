@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { pullGrantsFromFdw } from '@/lib/grantManagement/pullGrantsFromFdw'
 import { syncLogger } from '@/lib/syncLogger'
+import { requireCronSecret } from '@/lib/cronAuth'
 
 export const maxDuration = 300
 
@@ -42,6 +43,9 @@ async function run(dryRun: boolean) {
 
 export async function GET(request: Request) {
   try {
+    const cronBlock = requireCronSecret(request)
+    if (cronBlock) return cronBlock
+
     const dryRun = new URL(request.url).searchParams.get('dryRun') === '1'
     const result = await run(dryRun)
     return NextResponse.json(result, { status: result.success ? 200 : 500 })
@@ -57,6 +61,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const cronBlock = requireCronSecret(request)
+    if (cronBlock) return cronBlock
+
     let dryRun = false
     const urlDry = new URL(request.url).searchParams.get('dryRun') === '1'
     try {

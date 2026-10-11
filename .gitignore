@@ -70,6 +70,9 @@ docs/PORTAL_CANVAS_ENVIRONMENTS_CONCEPT.md
 # Canvas Phase 1 SQL + verify notes — local / prod apply only, do not commit
 sql/canvas/
 
+# Security hardening SQL — local / prod apply only, do not commit
+sql/security/
+
 # Local Storage / data migration helpers — do not commit
 scripts/sync-storage-bucket.js
 scripts/retry-storage-paths.js

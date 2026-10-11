@@ -5,6 +5,7 @@ import {
   loadFcdoFinancialTabs,
   syncFcdoF4TablesOnly,
 } from '@/lib/fcdoFinancialReportSync'
+import { requireCronSecret } from '@/lib/cronAuth'
 
 export const maxDuration = 600
 
@@ -36,6 +37,9 @@ async function runSync(dryRun: boolean) {
 
 export async function GET(request: Request) {
   try {
+    const cronBlock = requireCronSecret(request)
+    if (cronBlock) return cronBlock
+
     const url = new URL(request.url)
     const dryRun = url.searchParams.get('dryRun') === '1'
     const result = await runSync(dryRun)
@@ -52,6 +56,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const cronBlock = requireCronSecret(request)
+    if (cronBlock) return cronBlock
+
     let dryRun = false
     try {
       const body = await request.json()

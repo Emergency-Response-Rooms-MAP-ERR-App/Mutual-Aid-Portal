@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { syncLogger } from '@/lib/syncLogger'
+import { requireCronSecret } from '@/lib/cronAuth'
 
 // Initialize Google Sheets with better error handling
 function getGoogleSheetsAuth() {
@@ -291,6 +292,9 @@ function validateEnvironment() {
  */
 export async function POST(req: Request) {
   try {
+    const cronBlock = requireCronSecret(req)
+    if (cronBlock) return cronBlock
+
     // Validate environment variables first
     validateEnvironment()
 
@@ -782,8 +786,11 @@ export async function POST(req: Request) {
  * GET endpoint to manually trigger sync (for testing)
  * Also used by cron jobs
  */
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const cronBlock = requireCronSecret(req)
+    if (cronBlock) return cronBlock
+
     // Validate environment variables first
     validateEnvironment()
 
