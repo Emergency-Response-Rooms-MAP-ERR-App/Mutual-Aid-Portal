@@ -62,6 +62,20 @@ export async function forbidIfPartner (): Promise<NextResponse | null> {
   return null
 }
 
+/**
+ * Require a logged-in non-partner user. Unlike forbidIfPartner(), missing session is 401.
+ */
+export async function requireNonPartnerSession (): Promise<RouteAuthContext | NextResponse> {
+  const auth = await getRouteHandlerAuth()
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (auth.dbUser.role === 'partner') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  return auth
+}
+
 export function assertPermission (ctx: RouteAuthContext, functionCode: string): void {
   const ok = can(
     { id: ctx.dbUser.id, role: ctx.dbUser.role as Role },
@@ -70,6 +84,22 @@ export function assertPermission (ctx: RouteAuthContext, functionCode: string): 
     ctx.roleDefaultsMap
   )
   if (!ok) {
+    const err = new Error('Forbidden')
+    ;(err as Error & { statusCode?: number }).statusCode = 403
+    throw err
+  }
+}
+
+/** True if the user has at least one of the given permission codes. */
+export function hasAnyPermission (ctx: RouteAuthContext, functionCodes: string[]): boolean {
+  const permUser = { id: ctx.dbUser.id, role: ctx.dbUser.role as Role }
+  return functionCodes.some((code) =>
+    can(permUser, code, ctx.overridesMap, ctx.roleDefaultsMap)
+  )
+}
+
+export function assertAnyPermission (ctx: RouteAuthContext, functionCodes: string[]): void {
+  if (!hasAnyPermission(ctx, functionCodes)) {
     const err = new Error('Forbidden')
     ;(err as Error & { statusCode?: number }).statusCode = 403
     throw err

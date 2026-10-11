@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
+import { requirePermission } from '@/lib/requirePermission'
+import { requireGrantEditor } from '@/lib/grantManagement/requireGrantEditor'
 
 // GET /api/cycles - Get all funding cycles
 export async function GET(request: Request) {
   try {
+    const viewAuth = await requirePermission('grant_allocation_view_page')
+    if (viewAuth instanceof NextResponse) return viewAuth
+
     const supabase = getSupabaseRouteClient()
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -60,6 +65,9 @@ export async function GET(request: Request) {
 // POST /api/cycles - Create new funding cycle
 export async function POST(request: Request) {
   try {
+    const auth = await requireGrantEditor()
+    if (!auth.ok) return auth.response
+
     const supabase = getSupabaseRouteClient()
     const body = await request.json()
     const { cycle_number, year, name, start_date, end_date, grant_inclusions, type, tranche_count, pool_amount, tranche_splits } = body

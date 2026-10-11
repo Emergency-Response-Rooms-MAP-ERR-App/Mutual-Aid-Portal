@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
-import { forbidIfPartner } from '@/lib/routeHandlerAuth'
+import { requirePermission } from '@/lib/requirePermission'
 
 // GET /api/cycles/budget-summary/[id] - Get budget summary for a cycle
 export async function GET(
@@ -8,8 +8,8 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const partnerBlock = await forbidIfPartner()
-    if (partnerBlock) return partnerBlock
+    const viewAuth = await requirePermission('grant_allocation_view_page')
+    if (viewAuth instanceof NextResponse) return viewAuth
 
     const supabase = getSupabaseRouteClient()
     // Get cycle details

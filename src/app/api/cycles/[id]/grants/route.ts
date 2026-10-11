@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
+import { requirePermission } from '@/lib/requirePermission'
+import { requireGrantEditor } from '@/lib/grantManagement/requireGrantEditor'
 
 // POST /api/cycles/[id]/grants - Add grants to a cycle
 export async function POST(
@@ -7,6 +9,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const auth = await requireGrantEditor()
+    if (!auth.ok) return auth.response
+
     const supabase = getSupabaseRouteClient()
     const { id: cycleId } = params
     const { grant_inclusions } = await request.json()
@@ -136,6 +141,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const viewAuth = await requirePermission('grant_allocation_view_page')
+    if (viewAuth instanceof NextResponse) return viewAuth
+
     const supabase = getSupabaseRouteClient()
     const { id: cycleId } = params
 

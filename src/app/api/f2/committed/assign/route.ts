@@ -97,7 +97,12 @@ export async function POST(request: Request) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
       const createResp = await fetch(`${baseUrl}/api/fsystem/grant-serials/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(request.headers.get('cookie')
+            ? { cookie: request.headers.get('cookie') as string }
+            : {}),
+        },
         body: JSON.stringify({
           funding_cycle_id,
           cycle_state_allocation_id: cycleStateAllocationId,
