@@ -17,6 +17,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 import { resolveOrgDecisionKeyScope } from '@/lib/canvas/orgResourceScope'
 
@@ -175,15 +176,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Historical commitments for this state from activities_raw_import (State, USD)
-    const historicalRows =
-      orgScope.mode === 'all'
-        ? await fetchAllRows<{
-            State?: string | null
-            state?: string | null
-            USD?: number | null
-            usd?: number | null
-          }>(adminSupabase, 'activities_raw_import', 'State,USD')
-        : []
+    const historicalRows = orgScopeIncludesHistoricalImports(orgScope)
+      ? await fetchAllRows<{
+          State?: string | null
+          state?: string | null
+          USD?: number | null
+          usd?: number | null
+        }>(adminSupabase, 'activities_raw_import', 'State,USD')
+      : []
     let historical = 0
     for (const row of historicalRows || []) {
       const rawState = row['State'] ?? row['state'] ?? row.State

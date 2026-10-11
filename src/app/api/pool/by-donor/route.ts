@@ -11,6 +11,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 
 export const dynamic = 'force-dynamic'
@@ -212,15 +213,14 @@ export async function GET() {
       }
     }
 
-    const historicalData =
-      orgScope.mode === 'all'
-        ? await fetchAllRows<{
-            'Project Donor'?: string | null;
-            project_donor?: string | null;
-            USD?: number | null;
-            usd?: number | null;
-          }>(supabase, 'activities_raw_import', '"Project Donor",USD')
-        : []
+    const historicalData = orgScopeIncludesHistoricalImports(orgScope)
+      ? await fetchAllRows<{
+          'Project Donor'?: string | null
+          project_donor?: string | null
+          USD?: number | null
+          usd?: number | null
+        }>(supabase, 'activities_raw_import', '"Project Donor",USD')
+      : []
 
     // Historical by grant_id (from activities_raw_import "Project Donor")
     // Normalize donor string (e.g. "FCDO SHPR" -> "FCDO-SHPR") so it matches grants.grant_id

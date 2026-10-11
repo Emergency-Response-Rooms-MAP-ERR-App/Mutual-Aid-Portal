@@ -15,6 +15,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 import { resolveOrgDecisionKeyScope } from '@/lib/canvas/orgResourceScope'
 
@@ -131,14 +132,13 @@ export async function GET() {
       addAmount(allocatedByRestriction, key, amount)
     }
 
-    const historicalData =
-      orgScope.mode === 'all'
-        ? await fetchAllRows(
-            supabase,
-            'activities_raw_import',
-            'State,USD,"Grant Segment"'
-          )
-        : []
+    const historicalData = orgScopeIncludesHistoricalImports(orgScope)
+      ? await fetchAllRows(
+          supabase,
+          'activities_raw_import',
+          'State,USD,"Grant Segment"'
+        )
+      : []
 
     const historicalByRestriction = new Map<string, number>()
     for (const row of historicalData || []) {

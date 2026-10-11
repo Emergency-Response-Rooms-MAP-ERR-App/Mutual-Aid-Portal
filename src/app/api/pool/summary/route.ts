@@ -12,6 +12,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 import { resolveOrgDecisionKeyScope } from '@/lib/canvas/orgResourceScope'
 
@@ -147,9 +148,9 @@ export async function GET() {
       return sum + (Number.isNaN(amount) ? 0 : amount)
     }, 0)
 
-    // 2. Historical import is global LoHub data — omit for org-bound sessions
+    // 2. Historical import is LoHub-owned — include for default-owner org only
     let historical = 0
-    if (orgScope.mode === 'all') {
+    if (orgScopeIncludesHistoricalImports(orgScope)) {
       const historicalData = await fetchAllRows(supabase, 'activities_raw_import', 'USD')
       historical = (historicalData || []).reduce((sum, row) => {
         const rawUSD = row['USD'] || row['usd'] || row.USD

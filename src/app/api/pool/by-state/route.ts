@@ -18,6 +18,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 import { resolveOrgDecisionKeyScope } from '@/lib/canvas/orgResourceScope'
 import {
@@ -296,15 +297,14 @@ export async function GET(request: Request) {
 
     const skipUsageByDecision = Boolean(filters.decisionId)
 
-    // Historical import is LoHub-global — skip for org-bound sessions
-    const historicalData =
-      orgScope.mode === 'all'
-        ? await fetchAllRows(
-            supabase,
-            'activities_raw_import',
-            'State,USD,Partner,"Project Donor","Grant Segment","Date Transfer","Start Date (Activity)"'
-          )
-        : []
+    // Historical import is LoHub-owned — include for default-owner org only
+    const historicalData = orgScopeIncludesHistoricalImports(orgScope)
+      ? await fetchAllRows(
+          supabase,
+          'activities_raw_import',
+          'State,USD,Partner,"Project Donor","Grant Segment","Date Transfer","Start Date (Activity)"'
+        )
+      : []
 
     const historicalByState = new Map<string, number>()
     if (!skipUsageByDecision) {

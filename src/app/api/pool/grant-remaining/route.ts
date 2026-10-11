@@ -12,6 +12,7 @@ import {
   getUserOrgScope,
   orgScopeBlocksAllData,
   orgScopeBlocksResourceType,
+  orgScopeIncludesHistoricalImports,
 } from '@/lib/canvas/orgScope'
 
 export const dynamic = 'force-dynamic'
@@ -217,15 +218,14 @@ export async function GET(request: NextRequest) {
     }
     addForHistorical(grantId)
 
-    const historicalData =
-      orgScope.mode === 'all'
-        ? await fetchAllRows<{
-            'Project Donor'?: string | null
-            project_donor?: string | null
-            USD?: number | null
-            usd?: number | null
-          }>(adminSupabase, 'activities_raw_import', '"Project Donor",USD')
-        : []
+    const historicalData = orgScopeIncludesHistoricalImports(orgScope)
+      ? await fetchAllRows<{
+          'Project Donor'?: string | null
+          project_donor?: string | null
+          USD?: number | null
+          usd?: number | null
+        }>(adminSupabase, 'activities_raw_import', '"Project Donor",USD')
+      : []
     let historical = 0
     for (const row of historicalData || []) {
       const rawDonor = row['Project Donor'] ?? row['project_donor']

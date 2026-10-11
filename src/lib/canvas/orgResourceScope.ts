@@ -60,6 +60,10 @@ export async function resolveOrgDecisionKeyScope(
 ): Promise<OrgDecisionKeyScope> {
   if (orgScope.mode === 'none') return { mode: 'none' }
   if (orgScope.mode === 'all') return { mode: 'all' }
+  // Default-owner (LoHub): allocations_by_date is portal-wide legacy data — no org column.
+  if (orgScope.mode === 'org' && orgScope.isDefaultOwner) {
+    return { mode: 'all' }
+  }
   if (orgScope.mode === 'org') {
     const keys = await loadOrgDecisionKeys(supabase, orgScope.organizationId)
     return { mode: 'keys', keys }
