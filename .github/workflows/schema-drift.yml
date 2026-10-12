@@ -1,0 +1,47 @@
+# Nightly check that dev and production have the same public schema. Fails (and
+# GitHub emails the repo admins) when someone changes one of them by hand, e.g. in
+# the SQL editor, without a migration.
+
+name: Schema drift check
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.30.4
+
+      - name: Dump dev schema
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref "${{ vars.DEV_PROJECT_REF }}"
+          supabase db dump --linked -s public -f dev.sql
+
+      - name: Dump production schema
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref "${{ vars.PROD_PROJECT_REF }}"
+          supabase db dump --linked -s public -f prod.sql
+
+      - name: Compare
+        run: |
+          normalize() { grep -vE '^(--|SET |SELECT pg_catalog\.set_config)' "$1" | sed '/^$/d'; }
+          if diff -u <(normalize prod.sql) <(normalize dev.sql) > drift.diff; then
+            echo "Dev and production schemas match."
+          else
+            echo "::error::Dev schema differs from production. Lines starting with - are only in production, + only in dev."
+            cat drift.diff
+            exit 1
+          fi
