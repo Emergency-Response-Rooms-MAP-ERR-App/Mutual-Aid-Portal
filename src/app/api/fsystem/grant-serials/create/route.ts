@@ -1,11 +1,26 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
-import { forbidIfPartner } from '@/lib/routeHandlerAuth'
+import {
+  assertAnyPermission,
+  requireNonPartnerSession,
+} from '@/lib/routeHandlerAuth'
+
+const GRANT_SERIAL_CREATE_PERMS = [
+  'f1_upload',
+  'f1_assign_grant',
+  'f2_commit',
+  'f2_edit_project',
+]
 
 export async function POST(request: Request) {
   try {
-    const partnerBlock = await forbidIfPartner()
-    if (partnerBlock) return partnerBlock
+    const auth = await requireNonPartnerSession()
+    if (auth instanceof NextResponse) return auth
+    try {
+      assertAnyPermission(auth, GRANT_SERIAL_CREATE_PERMS)
+    } catch {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const supabase = getSupabaseAdmin()
     const { grant_call_id, funding_cycle_id, cycle_state_allocation_id, state_name, yymm } = await request.json()

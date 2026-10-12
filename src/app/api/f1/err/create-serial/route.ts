@@ -70,7 +70,12 @@ export async function POST (request: Request) {
 
     const createRes = await fetch(`${requestOrigin(request)}/api/fsystem/grant-serials/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(request.headers.get('cookie')
+          ? { cookie: request.headers.get('cookie') as string }
+          : {}),
+      },
       body: JSON.stringify({
         funding_cycle_id: project.funding_cycle_id,
         cycle_state_allocation_id: project.cycle_state_allocation_id,

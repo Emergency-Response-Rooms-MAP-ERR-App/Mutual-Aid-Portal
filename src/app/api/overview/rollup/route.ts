@@ -24,11 +24,12 @@ function getCacheKey(
 ): string {
   // v2: includes locality on rows + localityAggregations
   // v3: partner grant scope segment so partners never share admin/state caches
+  // v4: coordinator disclosure scope in grantScopeKey (access_grants)
   const scope =
     !allowedStates || allowedStates.length === 0
       ? 'all_states'
       : [...allowedStates].sort().join(',')
-  const base = `v3|${scope}|${grantScopeKey}`
+  const base = `v4|${scope}|${grantScopeKey}`
   // Base ERR room scope must never share the global/state cache entry
   return roomScopeKey === 'n/a' ? base : `${base}|room:${roomScopeKey}`
 }
@@ -314,13 +315,23 @@ export async function GET(request: Request) {
     const { getUserStateAccess } = await import('@/lib/userStateAccess')
     const { getUserGrantAccess } = await import('@/lib/userGrantAccess')
     const { getUserRoomAccess, roomAccessCacheKey } = await import('@/lib/userRoomAccess')
+    const {
+      getUserOrgScope,
+      applyOrganizationIdFilter,
+      filterRowsByDisclosureStates,
+      orgScopeBlocksAllData,
+      orgScopeBlocksResourceType,
+      orgScopeCacheKey,
+      orgScopeIncludesHistoricalImports,
+    } = await import('@/lib/canvas/orgScope')
 
     // Get user's state access rights (ERR roles), grant access (Partner) and room access (Base ERR)
     const accessStart = Date.now()
-    const [{ allowedStateNames }, grantAccess, roomAccess] = await Promise.all([
+    const [{ allowedStateNames }, grantAccess, roomAccess, orgScope] = await Promise.all([
       getUserStateAccess(),
       getUserGrantAccess(),
       getUserRoomAccess(),
+      getUserOrgScope(),
     ])
     timer('getUserStateAccess+getUserGrantAccess+getUserRoomAccess', accessStart)
 
@@ -329,19 +340,40 @@ export async function GET(request: Request) {
       return NextResponse.json(emptyRollupPayload())
     }
 
-    // Partner with no org / no grants: empty dataset (fail closed)
-    if (roomAccess.mode !== 'room' && grantAccess.mode === 'none') {
+    if (orgScopeBlocksAllData(orgScope)) {
       return NextResponse.json(emptyRollupPayload())
     }
+
+    // Coordinators: Project Management is F1-shaped — need an f1 grant or empty
+    if (orgScopeBlocksResourceType(orgScope, 'f1')) {
+      return NextResponse.json(emptyRollupPayload())
+    }
+
+    // Partner with no org / no grants: empty dataset (fail closed)
+    // Coordinators use access_grants (disclosed), not partner grant grids
+    if (
+      orgScope.mode !== 'disclosed' &&
+      roomAccess.mode !== 'room' &&
+      grantAccess.mode === 'none'
+    ) {
+      return NextResponse.json(emptyRollupPayload())
+    }
+
+    const orgScopeKey = orgScopeCacheKey(orgScope)
 
     const grantScopeKey =
       grantAccess.mode === 'partner'
         ? `partner:${grantAccess.opsPartnerId}:${[...grantAccess.grantGridIds].sort().join(',')}`
-        : 'all_grants'
+        : `all_grants|${orgScopeKey}`
 
     // Partners are grant-scoped and Base ERR is room-scoped (neither is state-scoped) here
+    // Coordinators: state limits come from access_grants (applied after fetch)
     const stateFilterForQuery =
-      grantAccess.mode === 'partner' || roomAccess.mode === 'room' ? null : allowedStateNames
+      grantAccess.mode === 'partner' ||
+      roomAccess.mode === 'room' ||
+      orgScope.mode === 'disclosed'
+        ? null
+        : allowedStateNames
 
     const cacheKey = getCacheKey(
       stateFilterForQuery,
@@ -371,30 +403,34 @@ export async function GET(request: Request) {
     // Paginate: PostgREST max-rows (often 1000) would otherwise truncate the rollup on prod.
     const projectsStart = Date.now()
     const projectSelect =
-      'id, state, locality, grant_call_id, grant_grid_id, grant_id, grant_segment, emergency_rooms (id, name, name_ar, err_code), planned_activities, expenses, source, status, funding_status, mou_id, f4_status, f5_status, date, date_transfer, completed_at, date_report_completed, estimated_beneficiaries, implemented_sector, activity_shift_note'
+      'id, organization_id, state, locality, grant_call_id, grant_grid_id, grant_id, grant_segment, emergency_rooms (id, name, name_ar, err_code), planned_activities, expenses, source, status, funding_status, mou_id, f4_status, f5_status, date, date_transfer, completed_at, date_report_completed, estimated_beneficiaries, implemented_sector, activity_shift_note'
     let projects: any[] = []
 
     if (roomAccess.mode === 'room') {
       // Base ERR: emergency_room_id only (never state / grant scope)
-      const { data, error: roomErr } = await supabase
+      let roomQuery = supabase
         .from('err_projects')
         .select(projectSelect)
         .in('status', ['approved', 'active', 'pending', 'completed'])
         .in('funding_status', ['committed', 'allocated', 'unassigned'])
         .eq('emergency_room_id', roomAccess.emergencyRoomId)
+      roomQuery = applyOrganizationIdFilter(roomQuery, orgScope, 'organization_id', 'f1')
+      const { data, error: roomErr } = await roomQuery
       if (roomErr) throw roomErr
       projects = data || []
-    } else if (grantAccess.mode === 'partner') {
+    } else if (grantAccess.mode === 'partner' && orgScope.mode !== 'disclosed') {
       if (grantAccess.grantGridIds.length === 0) {
         return NextResponse.json(emptyRollupPayload())
       }
       for (const batch of chunkIds(grantAccess.grantGridIds)) {
-        const { data: batchProjects, error: batchErr } = await supabase
+        let batchQuery = supabase
           .from('err_projects')
           .select(projectSelect)
           .in('status', ['approved', 'active', 'pending', 'completed'])
           .in('funding_status', ['committed', 'allocated', 'unassigned'])
           .in('grant_grid_id', batch)
+        batchQuery = applyOrganizationIdFilter(batchQuery, orgScope, 'organization_id', 'f1')
+        const { data: batchProjects, error: batchErr } = await batchQuery
         if (batchErr) throw batchErr
         if (batchProjects?.length) projects.push(...batchProjects)
       }
@@ -413,6 +449,12 @@ export async function GET(request: Request) {
         if (stateFilterForQuery !== null && stateFilterForQuery.length > 0) {
           projectQuery = projectQuery.in('state', stateFilterForQuery)
         }
+        projectQuery = applyOrganizationIdFilter(
+          projectQuery,
+          orgScope,
+          'organization_id',
+          'f1'
+        )
 
         const { data: page, error: projectsError } = await projectQuery
         if (projectsError) throw projectsError
@@ -422,6 +464,11 @@ export async function GET(request: Request) {
         from += pageSize
       }
     }
+
+    // Coordinator: keep only projects in granted orgs + states for F1
+    if (orgScope.mode === 'disclosed') {
+      projects = filterRowsByDisclosureStates(projects, orgScope, 'f1')
+    }
     timer('fetch projects', projectsStart)
 
     const projectIds = projects.map((p: any) => p.id)
@@ -429,8 +476,12 @@ export async function GET(request: Request) {
     const dataSupabase = getSupabaseAdmin()
 
     // ===== PARALLEL BATCH 1: All independent data (historical + project-dependent) =====
-    // Partner v1 / Base ERR: exclude activities_raw_import (grant_grid_id- / room-only scope)
-    const skipHistorical = grantAccess.mode === 'partner' || roomAccess.mode === 'room'
+    // Legacy import tables are LoHub-owned — skip for partners, Base ERR, coordinators,
+    // and non–default-owner orgs (e.g. Demo Empty).
+    const skipHistorical =
+      grantAccess.mode === 'partner' ||
+      roomAccess.mode === 'room' ||
+      !orgScopeIncludesHistoricalImports(orgScope)
     const batch1Start = Date.now()
     const [
       allHistoricalData,

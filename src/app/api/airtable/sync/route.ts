@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { syncLogger } from '@/lib/syncLogger'
+import { requireCronSecret } from '@/lib/cronAuth'
 
 const AIRTABLE_BASE_ID = 'appq9qjlnEW7d0tqZ'
 const AIRTABLE_TOKEN_ENV = 'Airtable_Personal_Access_Token'
@@ -158,7 +159,10 @@ async function syncTable(config: TableSyncConfig) {
   await upsertWithSchemaSync(config.supabaseTable, config.upsertKey, rows)
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const cronBlock = requireCronSecret(request)
+  if (cronBlock) return cronBlock
+
   const syncId = `airtable-sync-${Date.now()}`
   syncLogger.startSync(syncId)
 

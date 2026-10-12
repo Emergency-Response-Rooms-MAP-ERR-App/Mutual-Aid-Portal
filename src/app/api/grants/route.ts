@@ -11,6 +11,15 @@ import {
   fetchGrantGridIdsForEmergencyRoom,
   getUserRoomAccess,
 } from '@/lib/userRoomAccess'
+import {
+  applyOrganizationIdFilter,
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  orgIdsForGrantsModule,
+  orgScopeBlocksAllData,
+  withOrganizationId,
+} from '@/lib/canvas/orgScope'
 
 const GRANT_SELECT =
   'id, grant_id, donor_id, donor_name, partner_name, project_name, grant_start_date, grant_end_date, status, total_transferred_amount_usd, sum_activity_amount, sum_transfer_fee_amount, max_workplan_sequence'
@@ -153,10 +162,14 @@ function parseGrantBody(body: Record<string, unknown>) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const [grantAccess, roomAccess] = await Promise.all([
+    const [grantAccess, roomAccess, orgScope] = await Promise.all([
       getUserGrantAccess(),
       getUserRoomAccess(),
+      getUserOrgScope(),
     ])
+    if (orgScopeBlocksAllData(orgScope)) {
+      return NextResponse.json([])
+    }
     if (roomAccess.mode === 'none') {
       return NextResponse.json([])
     }
@@ -168,7 +181,18 @@ export async function GET(request: NextRequest) {
     if (roomGridIdSet != null && roomGridIdSet.size === 0) {
       return NextResponse.json([])
     }
-    if (roomAccess.mode !== 'room' && grantAccess.mode === 'none') {
+    if (
+      !isDisclosedCoordinator(orgScope) &&
+      roomAccess.mode !== 'room' &&
+      grantAccess.mode === 'none'
+    ) {
+      return NextResponse.json([])
+    }
+
+    const disclosedOrgIds = isDisclosedCoordinator(orgScope)
+      ? orgIdsForGrantsModule(orgScope)
+      : null
+    if (disclosedOrgIds && disclosedOrgIds.length === 0) {
       return NextResponse.json([])
     }
 
@@ -184,7 +208,12 @@ export async function GET(request: NextRequest) {
         .order('grant_start_date', { ascending: false })
         .order('id', { ascending: true })
         .range(from, to)
-      if (grantAccess.mode === 'partner') {
+      if (disclosedOrgIds) {
+        query = query.in('organization_id', disclosedOrgIds)
+      } else {
+        query = applyOrganizationIdFilter(query, orgScope)
+      }
+      if (!isDisclosedCoordinator(orgScope) && grantAccess.mode === 'partner') {
         query = query.in('id', grantAccess.grantGridIds)
       }
       if (status !== 'all') {
@@ -299,9 +328,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
 
+    const orgScope = await getUserOrgScope(auth.ctx.supabase)
+    if (orgScopeBlocksAllData(orgScope)) {
+      return NextResponse.json({ error: 'No organization scope' }, { status: 403 })
+    }
+    if (isDisclosedCoordinator(orgScope)) {
+      return coordinatorWriteForbiddenResponse()
+    }
+
     const { data, error } = await auth.ctx.supabase
       .from('grants_grid_view')
-      .insert(parsed.payload)
+      .insert(withOrganizationId(parsed.payload as Record<string, unknown>, orgScope))
       .select(GRANT_SELECT)
       .single()
 

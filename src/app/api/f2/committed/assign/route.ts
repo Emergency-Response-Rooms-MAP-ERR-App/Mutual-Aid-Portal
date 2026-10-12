@@ -2,9 +2,16 @@ import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
 import { assertProjectsInGrantAccess } from '@/lib/userGrantAccess'
 import { emitF123Audit } from '@/lib/f123Audit'
+import {
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+} from '@/lib/canvas/orgScope'
 
 export async function POST(request: Request) {
   try {
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
+
     const supabase = getSupabaseRouteClient()
     const { f1_ids, funding_cycle_id, grant_call_id, mmyy, grant_serial } = await request.json()
     
@@ -90,7 +97,12 @@ export async function POST(request: Request) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
       const createResp = await fetch(`${baseUrl}/api/fsystem/grant-serials/create`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(request.headers.get('cookie')
+            ? { cookie: request.headers.get('cookie') as string }
+            : {}),
+        },
         body: JSON.stringify({
           funding_cycle_id,
           cycle_state_allocation_id: cycleStateAllocationId,

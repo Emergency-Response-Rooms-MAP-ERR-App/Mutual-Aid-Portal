@@ -6,10 +6,18 @@ import { inferF4SourceLanguage, normalizePaymentDateForDb } from '@/lib/f4SaveNo
 import { fetchF4SectorsForMatch, normalizeF4ExpenseActivitiesToSectors } from '@/lib/f4ExpenseSectors'
 import { assertProjectInGrantAccess } from '@/lib/userGrantAccess'
 import { emitF123Audit } from '@/lib/f123Audit'
+import {
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  withOrganizationId,
+} from '@/lib/canvas/orgScope'
 
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseRouteClient()
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
+
     const { project_id, summary, expenses, file_key_temp, uploaded_by } = await req.json()
     if (!project_id || !summary) return NextResponse.json({ error: 'project_id and summary required' }, { status: 400 })
 
@@ -111,26 +119,33 @@ export async function POST(req: Request) {
     const { translatedData: translatedSummary, originalText: summaryOriginalText } = await translateF4Summary(summary, sourceLanguage)
     console.log('F4 summary translation completed. Original text preserved:', Object.keys(summaryOriginalText).length > 0)
 
+    const orgScope = await getUserOrgScope(supabase)
+
     // Insert summary
     const { data: inserted, error: insErr } = await supabase
       .from('err_summary')
-      .insert({
-        project_id: actual_project_id,
-        activities_raw_import_id: activities_raw_import_id,
-        err_id,
-        report_date: translatedSummary.report_date || null,
-        total_grant: translatedSummary.total_grant ?? null,
-        total_expenses: translatedSummary.total_expenses ?? null,
-        total_expenses_sdg: translatedSummary.total_expenses_sdg ?? null,
-        remainder: translatedSummary.remainder ?? null,
-        beneficiaries: translatedSummary.beneficiaries || null,
-        lessons: translatedSummary.lessons || null,
-        training: translatedSummary.training || null,
-        project_objectives: translatedSummary.project_objectives || null,
-        receipt_check: translatedSummary.receipt_check ?? null,
-        original_text: summaryOriginalText,
-        language: sourceLanguage
-      })
+      .insert(
+        withOrganizationId(
+          {
+            project_id: actual_project_id,
+            activities_raw_import_id: activities_raw_import_id,
+            err_id,
+            report_date: translatedSummary.report_date || null,
+            total_grant: translatedSummary.total_grant ?? null,
+            total_expenses: translatedSummary.total_expenses ?? null,
+            total_expenses_sdg: translatedSummary.total_expenses_sdg ?? null,
+            remainder: translatedSummary.remainder ?? null,
+            beneficiaries: translatedSummary.beneficiaries || null,
+            lessons: translatedSummary.lessons || null,
+            training: translatedSummary.training || null,
+            project_objectives: translatedSummary.project_objectives || null,
+            receipt_check: translatedSummary.receipt_check ?? null,
+            original_text: summaryOriginalText,
+            language: sourceLanguage,
+          },
+          orgScope
+        )
+      )
       .select('id')
       .single()
     if (insErr) throw insErr

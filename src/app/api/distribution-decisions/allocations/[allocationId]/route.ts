@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireGrantEditor } from '@/lib/grantManagement/requireGrantEditor'
 import { refreshDecisionAllocationSum } from '@/lib/grantManagement/refreshDecisionSum'
 import {
@@ -7,6 +8,32 @@ import {
   syncAllocationToAirtable,
 } from '@/lib/grantManagement/pushToAirtable'
 import { SYNC_STATUS } from '@/lib/grantManagement/syncStatus'
+import {
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  organizationIdMatchesScope,
+  orgScopeForbiddenResponse,
+} from '@/lib/canvas/orgScope'
+
+async function assertAllocationInOrgScope(
+  supabase: SupabaseClient,
+  decisionGroupKey: string
+): Promise<NextResponse | null> {
+  const orgScope = await getUserOrgScope(supabase)
+  if (isDisclosedCoordinator(orgScope)) return coordinatorWriteForbiddenResponse()
+
+  const { data: orgRow } = await supabase
+    .from('distribution_decision_master_sheet_1')
+    .select('organization_id')
+    .eq('decision_id_proposed', decisionGroupKey)
+    .maybeSingle()
+
+  if (!organizationIdMatchesScope(orgScope, orgRow?.organization_id)) {
+    return orgScopeForbiddenResponse()
+  }
+  return null
+}
 
 // PUT /api/distribution-decisions/allocations/[allocationId] - Update a specific allocation
 export async function PUT(
@@ -38,6 +65,9 @@ export async function PUT(
     if (!groupKey) {
       return NextResponse.json({ error: 'Allocation has no linked decision' }, { status: 400 })
     }
+
+    const scopeBlock = await assertAllocationInOrgScope(auth.ctx.supabase, groupKey)
+    if (scopeBlock) return scopeBlock
 
     const { data: decision, error: decisionError } = await auth.ctx.supabase
       .from('distribution_decision_master_sheet_1')
@@ -103,6 +133,9 @@ export async function DELETE(
     if (!groupKey) {
       return NextResponse.json({ error: 'Allocation has no linked decision' }, { status: 404 })
     }
+
+    const scopeBlock = await assertAllocationInOrgScope(auth.ctx.supabase, groupKey)
+    if (scopeBlock) return scopeBlock
 
     const push = await removeAllocationFromAirtable(
       allocationData.airtable_record_id,

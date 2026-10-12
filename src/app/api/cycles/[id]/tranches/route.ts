@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
+import { requirePermission } from '@/lib/requirePermission'
+import { requireGrantEditor } from '@/lib/grantManagement/requireGrantEditor'
 
 // GET /api/cycles/[id]/tranches - list tranches for a cycle
 export async function GET(
@@ -7,6 +9,9 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const viewAuth = await requirePermission('grant_allocation_view_page')
+    if (viewAuth instanceof NextResponse) return viewAuth
+
     const supabase = getSupabaseRouteClient()
     const { data, error } = await supabase
       .from('cycle_tranches')
@@ -28,6 +33,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const auth = await requireGrantEditor()
+    if (!auth.ok) return auth.response
+
     const supabase = getSupabaseRouteClient()
     const body = await request.json()
     const { tranche_no, planned_cap, status } = body
@@ -63,6 +71,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const auth = await requireGrantEditor()
+    if (!auth.ok) return auth.response
+
     const supabase = getSupabaseRouteClient()
     const body = await request.json()
     const { tranche_no, status, planned_cap } = body

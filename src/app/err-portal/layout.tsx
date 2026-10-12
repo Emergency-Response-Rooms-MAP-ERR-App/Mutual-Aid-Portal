@@ -3,23 +3,19 @@
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
+import PortalPageTransition from '@/components/PortalPageTransition'
 import PageExplainerHeader from '@/components/layout/PageExplainerHeader'
+import PortalHeaderShortcuts from '@/components/layout/PortalHeaderShortcuts'
 import { PageExplainerProvider } from '@/contexts/PageExplainerContext'
 import type { SidebarItem, SidebarLinkItem } from '@/components/layout/Sidebar'
 import { useRouter } from 'next/navigation'
-import { Users, ClipboardList, BarChart2, BarChart3, PieChart, UserCog, Home, CheckSquare, BookOpen, PenTool, Cog, FileText, BookMarked, Ticket, ShieldCheck, Archive, Split, ArrowLeftRight, LayoutDashboard, MapPin, ScrollText } from 'lucide-react'
+import { Users, ClipboardList, BarChart2, BarChart3, PieChart, UserCog, Home, CheckSquare, BookOpen, PenTool, Cog, FileText, BookMarked, Ticket, ShieldCheck, Archive, Split, ArrowLeftRight, LayoutDashboard, MapPin, ScrollText, Eye } from 'lucide-react'
 import { useAllowedFunctions } from '@/hooks/useAllowedFunctions'
+import { useCanvasSession } from '@/hooks/useCanvasSession'
+import { isModuleMounted } from '@/lib/canvas/mounts'
+import { isLocalizationHubOrg } from '@/lib/canvas/orgBrand'
 import { isStateManagementRole } from '@/lib/stateManagement/roles'
 import { canViewAuditLogUi } from '@/lib/auditLogAccess'
-
-interface User {
-  id: string;
-  auth_user_id: string;
-  display_name: string;
-  role: string;
-  status: string;
-  err_id: string | null;
-}
 
 export default function ErrPortalLayout({
   children,
@@ -27,25 +23,12 @@ export default function ErrPortalLayout({
   children: React.ReactNode
 }) {
   const { t } = useTranslation(['err'])
-  const [user, setUser] = useState<User | null>(null)
+  const { me: user, mountedModules, isLoading: canvasLoading } = useCanvasSession()
   const [minimizedType, setMinimizedType] = useState<'f4'|'f5'|null>(null)
   const [compliancePendingCount, setCompliancePendingCount] = useState<number>(0)
   const router = useRouter()
 
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const res = await fetch('/api/users/me')
-        if (res.ok) {
-          const userData = await res.json()
-          setUser(userData)
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error)
-      }
-    }
-    getUser()
-  }, [])
+  const mounted = (code: string) => isModuleMounted(mountedModules, code)
 
   // Watch localStorage to show minimized upload bar across pages
   useEffect(() => {
@@ -67,10 +50,10 @@ export default function ErrPortalLayout({
   }, [])
 
   const { can, isLoading: permissionsLoading } = useAllowedFunctions()
-  const canViewGrantDecisions = can('grant_decisions_view_page')
-  const canViewGrantGrants = can('grant_grants_view_page')
-  const canViewGrantAllocation = can('grant_allocation_view_page')
-  const canViewCompliance = can('compliance_view_page')
+  const canViewGrantDecisions = can('grant_decisions_view_page') && mounted('grant_decisions')
+  const canViewGrantGrants = can('grant_grants_view_page') && mounted('grant_grants')
+  const canViewGrantAllocation = can('grant_allocation_view_page') && mounted('grant_allocation')
+  const canViewCompliance = can('compliance_view_page') && mounted('compliance')
 
   useEffect(() => {
     if (permissionsLoading || !canViewCompliance) return
@@ -83,20 +66,28 @@ export default function ErrPortalLayout({
       .catch(() => {})
     return () => { cancelled = true }
   }, [permissionsLoading, canViewCompliance])
-  const canViewF1 = can('f1_view_page')
-  const canViewF2 = can('f2_view_page')
-  const canViewF3 = can('f3_view_page')
-  const canViewF4F5 = can('f4_f5_view_page')
-  const canViewLearnings = can('learnings_view_page')
-  const canViewProjectManagement = can('management_view_page')
-  const canViewUserManagement = can('users_view_page')
-  const canViewRooms = can('rooms_view_page')
-  const canViewStates = can('states_view_page') && isStateManagementRole(user?.role)
-  const canViewDashboard = can('dashboard_view_page')
-  const canViewSurveys = can('surveys_view_page')
-  const canRaiseTicket = can('raise_ticket_page')
-  const canViewTicketDashboard = can('ticket_dashboard_view_page')
-  const canViewDataArchive = can('data_archive_view_page')
+  const canViewF1 = can('f1_view_page') && mounted('f1_workplans')
+  const canViewF2 = can('f2_view_page') && mounted('f2_approvals')
+  const canViewF3 = can('f3_view_page') && mounted('f3_mous')
+  const canViewF4F5 = can('f4_f5_view_page') && mounted('f4_f5_reporting')
+  const canViewLearnings = can('learnings_view_page') && mounted('learnings')
+  const canViewProjectManagement = can('management_view_page') && mounted('project_management')
+  const canViewUserManagement = can('users_view_page') && mounted('user_management')
+  const canViewRooms = can('rooms_view_page') && mounted('room_management')
+  const canViewStates =
+    can('states_view_page') && mounted('state_management') && isStateManagementRole(user?.role)
+  const canViewDashboard = can('dashboard_view_page') && mounted('dashboard')
+  const canViewSurveys = can('surveys_view_page') && mounted('surveys')
+  const canRaiseTicket = can('raise_ticket_page') && mounted('raise_ticket')
+  const canViewTicketDashboard = can('ticket_dashboard_view_page') && mounted('ticket_dashboard')
+  const canViewDataArchive = can('data_archive_view_page') && mounted('data_archive')
+  const canViewReportTracker = can('f4_f5_view_page') && mounted('report_tracker')
+  const canViewEnvironment = mounted('environment_home')
+  const canViewOversight =
+    mounted('oversight') && user?.organization_type === 'coordinator'
+  const canViewAccessInbox =
+    mounted('access_inbox') ||
+    (user?.organization_type === 'coordinator' && !!user?.organization_id)
 
   const fSystemChildren: SidebarLinkItem[] = []
   if (canViewF1) {
@@ -129,7 +120,14 @@ export default function ErrPortalLayout({
   }
 
   const reportingGroupChildren: SidebarLinkItem[] = []
-  if (canViewF4F5) {
+  if (canViewOversight) {
+    reportingGroupChildren.push({
+      href: '/err-portal/oversight',
+      label: 'Oversight',
+      icon: <Eye className="h-5 w-5" />,
+    })
+  }
+  if (canViewReportTracker) {
     reportingGroupChildren.push({
       href: '/err-portal/report-tracker',
       label: 'Report Tracker',
@@ -210,7 +208,7 @@ export default function ErrPortalLayout({
       icon: <UserCog className="h-5 w-5" />,
     })
   }
-  if (canViewAuditLogUi(user?.role, user?.status)) {
+  if (canViewAuditLogUi(user?.role, user?.status) && mounted('audit_log')) {
     adminGroupChildren.push({
       href: '/err-portal/audit-log',
       label: t('err:audit_log', { defaultValue: 'Audit Log' }),
@@ -246,9 +244,12 @@ export default function ErrPortalLayout({
     })
   }
 
-  // While permissions are unresolved: minimal non-protected shell only (Home).
-  // Do not render permission-gated nav items (fail closed — no flash).
-  const sidebarItems: SidebarItem[] = permissionsLoading
+  // Wait for permissions AND canvas mounts — otherwise mounts briefly look like full catalog.
+  const navLoading = permissionsLoading || canvasLoading
+
+  // While unresolved: minimal non-protected shell only (Home).
+  // Do not render permission-/mount-gated nav items (fail closed — no flash).
+  const sidebarItems: SidebarItem[] = navLoading
     ? [
         {
           href: '/err-portal',
@@ -300,14 +301,36 @@ export default function ErrPortalLayout({
           : []),
       ]
 
+  const headerTitle =
+    user?.environment_header_title ||
+    user?.environment_display_name ||
+    'Portal'
+
+  // Localization Hub branded loader only — other orgs/LCC get their own loaders later.
+  const lohubPageTransitions =
+    !canvasLoading && isLocalizationHubOrg(user?.organization_slug)
+
+  const accessInboxLabel =
+    user?.organization_type === 'processor' ? 'Access inbox' : 'Access requests'
+
   return (
     <PageExplainerProvider>
+    <PortalPageTransition enabled={lohubPageTransitions}>
     <MainLayout
         sidebarItems={sidebarItems}
-        headerTitle="Mutual Aid Portal"
+        headerTitle={headerTitle}
         userName={user?.display_name ?? undefined}
         userRole={user?.role}
-        headerExtra={<PageExplainerHeader />}
+        headerExtra={
+          <>
+            <PortalHeaderShortcuts
+              showEnvironment={!navLoading && canViewEnvironment}
+              showAccessInbox={!navLoading && canViewAccessInbox}
+              accessInboxLabel={accessInboxLabel}
+            />
+            <PageExplainerHeader />
+          </>
+        }
       >
       {children}
       {minimizedType && (
@@ -331,6 +354,7 @@ export default function ErrPortalLayout({
         </div>
       )}
     </MainLayout>
+    </PortalPageTransition>
     </PageExplainerProvider>
   )
 }

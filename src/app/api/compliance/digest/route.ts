@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sendComplianceCommittedDigest } from '@/lib/complianceDigest'
+import { requireCronSecret } from '@/lib/cronAuth'
 
 /**
  * GET /api/compliance/digest
@@ -9,18 +10,8 @@ import { sendComplianceCommittedDigest } from '@/lib/complianceDigest'
  */
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get('authorization') || ''
-    const cronSecret = process.env.CRON_SECRET
-
-    if (process.env.NODE_ENV === 'production') {
-      if (!cronSecret) {
-        console.error('[compliance-digest] CRON_SECRET is not set; Vercel Cron cannot authenticate')
-        return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 })
-      }
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
+    const cronBlock = requireCronSecret(request)
+    if (cronBlock) return cronBlock
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY

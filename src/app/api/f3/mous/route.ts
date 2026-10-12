@@ -23,6 +23,16 @@ import {
 } from '@/lib/userRoomAccess'
 import { emitF123Audit } from '@/lib/f123Audit'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  applyOrganizationIdFilter,
+  coordinatorWriteForbiddenResponse,
+  filterRowsByDisclosureStates,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  orgScopeBlocksAllData,
+  orgScopeBlocksResourceType,
+  withOrganizationId,
+} from '@/lib/canvas/orgScope'
 
 function parseMouSignatures(mou: Record<string, unknown>) {
   if (mou.signatures && typeof mou.signatures === 'string') {
@@ -301,10 +311,11 @@ export async function GET(request: Request) {
     const search = searchParams.get('search')
     const state = searchParams.get('state')
 
-    const [{ allowedStateNames }, grantAccess, roomAccess] = await Promise.all([
+    const [{ allowedStateNames }, grantAccess, roomAccess, orgScope] = await Promise.all([
       getUserStateAccess(),
       getUserGrantAccess(),
       getUserRoomAccess(),
+      getUserOrgScope(),
     ])
 
     const emptyMous = () =>
@@ -313,20 +324,31 @@ export async function GET(request: Request) {
         ...aggregateMouEnrichment([]),
       })
 
+    if (orgScopeBlocksAllData(orgScope) || orgScopeBlocksResourceType(orgScope, 'mous')) {
+      return emptyMous()
+    }
     if (roomAccess.mode === 'none') return emptyMous()
-    if (roomAccess.mode !== 'room' && grantAccess.mode === 'none') return emptyMous()
+    if (
+      orgScope.mode !== 'disclosed' &&
+      roomAccess.mode !== 'room' &&
+      grantAccess.mode === 'none'
+    ) {
+      return emptyMous()
+    }
 
     // MOU ids with ≥1 project in scope: Base ERR by room, Partner by grants
     const scopedMouIds =
-      roomAccess.mode === 'room'
-        ? await fetchMouIdsForEmergencyRoom(roomAccess.emergencyRoomId)
-        : grantAccess.mode === 'partner'
-          ? await fetchMouIdsInGrantAccess(grantAccess)
-          : null
+      orgScope.mode === 'disclosed'
+        ? null
+        : roomAccess.mode === 'room'
+          ? await fetchMouIdsForEmergencyRoom(roomAccess.emergencyRoomId)
+          : grantAccess.mode === 'partner'
+            ? await fetchMouIdsInGrantAccess(grantAccess)
+            : null
 
     if (scopedMouIds != null && scopedMouIds.length === 0) return emptyMous()
 
-    const mous = await fetchAllPages((from, to) => {
+    const mousRaw = await fetchAllPages((from, to) => {
       let query = supabase
         .from('mous')
         .select('*')
@@ -334,8 +356,11 @@ export async function GET(request: Request) {
         .order('id', { ascending: true })
         .range(from, to)
 
+      query = applyOrganizationIdFilter(query, orgScope, 'organization_id', 'mous')
+
       // Base ERR / Partner: scoped via linked projects (never state scope)
-      if (scopedMouIds == null) {
+      // Coordinators: state limits come from access_grants (post-filter)
+      if (scopedMouIds == null && orgScope.mode !== 'disclosed') {
         if (allowedStateNames !== null && allowedStateNames.length > 0) {
           query = query.in('state', allowedStateNames)
         }
@@ -345,6 +370,11 @@ export async function GET(request: Request) {
       }
       return query
     })
+
+    const mous =
+      orgScope.mode === 'disclosed'
+        ? filterRowsByDisclosureStates(mousRaw, orgScope, 'mous')
+        : mousRaw
 
     const scopedSet = scopedMouIds != null ? new Set(scopedMouIds) : null
     let list = scopedSet
@@ -387,6 +417,7 @@ export async function POST(request: Request) {
     const permF2 = await requirePermission('f2_create_mou')
     const permF3 = await requirePermission('f3_assign')
     if (permF2 instanceof NextResponse && permF3 instanceof NextResponse) return permF2
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
 
     const supabase = getSupabaseRouteClient()
     const body = await request.json()
@@ -452,18 +483,28 @@ export async function POST(request: Request) {
     const rand = Math.floor(100 + Math.random() * 900) // 3 digits
     const autoCode = `${partnerPrefix}-${statePrefix}-${datePart}-${rand}`
 
+    const orgScope = await getUserOrgScope(supabase)
+    if (orgScopeBlocksAllData(orgScope)) {
+      return NextResponse.json({ error: 'No organization scope' }, { status: 403 })
+    }
+
     // Create MOU row
     const { data: inserted, error: insErr } = await supabase
       .from('mous')
-      .insert({
-        mou_code: mou_code || autoCode,
-        partner_name: inferredPartner,
-        err_name: inferredErrName,
-        state: inferredState,
-        total_amount,
-        end_date: end_date || null,
-        file_key: null
-      })
+      .insert(
+        withOrganizationId(
+          {
+            mou_code: mou_code || autoCode,
+            partner_name: inferredPartner,
+            err_name: inferredErrName,
+            state: inferredState,
+            total_amount,
+            end_date: end_date || null,
+            file_key: null,
+          },
+          orgScope
+        )
+      )
       .select('*')
       .single()
 

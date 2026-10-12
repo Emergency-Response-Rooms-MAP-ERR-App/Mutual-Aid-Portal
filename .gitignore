@@ -30,9 +30,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — never commit (including .env.example)
 .env*
-!.env.example
 
 # vercel
 .vercel
@@ -65,6 +64,15 @@ next-env.d.ts
 # Internal cutover notes — do not commit
 LOCAL_PROD_CUTOVER_PLAN.md
 
+# Local concept notes — do not commit
+docs/PORTAL_CANVAS_ENVIRONMENTS_CONCEPT.md
+
+# Canvas Phase 1 SQL + verify notes — local / prod apply only, do not commit
+sql/canvas/
+
+# Security hardening SQL — local / prod apply only, do not commit
+sql/security/
+
 # Local Storage / data migration helpers — do not commit
 scripts/sync-storage-bucket.js
 scripts/retry-storage-paths.js
@@ -83,6 +91,7 @@ scripts/cutover/verify-storage-bytes.js
 scripts/cutover/purge-staging-f4-sample.js
 scripts/cutover/purge-staging-f5-sample.js
 scripts/cutover/purge-staging-f3-signed-payment.js
+scripts/cutover/purge-staging-f3-pdfs.js
 scripts/cutover/purge-staging-f1-sample.js
 scripts/cutover/sync-f4-prod-to-staging.js
 scripts/cutover/_storage-compare/

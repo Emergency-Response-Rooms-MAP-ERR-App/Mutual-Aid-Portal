@@ -19,6 +19,13 @@ import {
   formatAdDateYyMmDd,
   partnerCodeForId,
 } from '@/lib/grantManagement/adDecisionIds'
+import {
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  organizationIdMatchesScope,
+  orgScopeForbiddenResponse,
+} from '@/lib/canvas/orgScope'
 
 /**
  * GET /api/distribution-decisions/[decisionId]/allocations - Allocations for one decision.
@@ -92,6 +99,17 @@ export async function POST(
     const decision = await findDecisionByIdentifier(auth.ctx.supabase, decisionId)
     if (!decision) {
       return NextResponse.json({ error: 'Decision not found' }, { status: 404 })
+    }
+
+    const orgScope = await getUserOrgScope(auth.ctx.supabase)
+    if (isDisclosedCoordinator(orgScope)) return coordinatorWriteForbiddenResponse()
+    const { data: orgRow } = await auth.ctx.supabase
+      .from('distribution_decision_master_sheet_1')
+      .select('organization_id')
+      .eq('id', decision.id)
+      .maybeSingle()
+    if (!organizationIdMatchesScope(orgScope, orgRow?.organization_id)) {
+      return orgScopeForbiddenResponse()
     }
 
     const groupKey = (await resolveDecisionGroupKey(auth.ctx.supabase, decisionId)) || decisionId

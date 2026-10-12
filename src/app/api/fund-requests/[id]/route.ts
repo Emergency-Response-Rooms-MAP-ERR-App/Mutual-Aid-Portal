@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { requireGrantEditor } from '@/lib/grantManagement/requireGrantEditor'
 import { transferAmount } from '@/lib/grantManagement/fundTransferHelpers'
+import {
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+} from '@/lib/canvas/orgScope'
+import { assertTreasuryRowInScope } from '@/lib/grantManagement/orgTreasuryScope'
 
 const FR_SELECT =
-  'id, request_id, date_submitted, requested_amount, partner_name, file_name, file_link, airtable_record_id, created_at, updated_at'
+  'id, organization_id, request_id, date_submitted, requested_amount, partner_name, file_name, file_link, airtable_record_id, created_at, updated_at'
 
 async function enrichOne(supabase: ReturnType<typeof getSupabaseAdmin>, row: Record<string, unknown>) {
   const frId = row.id as string
@@ -51,8 +57,22 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const orgScope = await getUserOrgScope()
+    const access = await assertTreasuryRowInScope(
+      getSupabaseAdmin(),
+      orgScope,
+      'fund_requests',
+      params.id
+    )
+    if (access !== 'ok') {
+      return NextResponse.json({ error: 'Fund request not found' }, { status: 404 })
+    }
     const supabase = getSupabaseAdmin()
-    const { data, error } = await supabase.from('fund_requests').select(FR_SELECT).eq('id', params.id).single()
+    const { data, error } = await supabase
+      .from('fund_requests')
+      .select(FR_SELECT)
+      .eq('id', params.id)
+      .single()
     if (error) throw error
     return NextResponse.json(await enrichOne(supabase, data as Record<string, unknown>))
   } catch (error) {
@@ -68,6 +88,20 @@ export async function PUT(
 ) {
   const auth = await requireGrantEditor()
   if (!auth.ok) return auth.response
+
+  const orgScope = await getUserOrgScope(auth.ctx.supabase)
+  if (isDisclosedCoordinator(orgScope)) {
+    return coordinatorWriteForbiddenResponse()
+  }
+  const access = await assertTreasuryRowInScope(
+    auth.ctx.supabase,
+    orgScope,
+    'fund_requests',
+    params.id
+  )
+  if (access !== 'ok') {
+    return NextResponse.json({ error: 'Fund request not found' }, { status: 404 })
+  }
 
   try {
     const body = await request.json()
@@ -112,8 +146,21 @@ export async function DELETE(
   const auth = await requireGrantEditor()
   if (!auth.ok) return auth.response
 
+  const orgScope = await getUserOrgScope(auth.ctx.supabase)
+  if (isDisclosedCoordinator(orgScope)) {
+    return coordinatorWriteForbiddenResponse()
+  }
+  const access = await assertTreasuryRowInScope(
+    auth.ctx.supabase,
+    orgScope,
+    'fund_requests',
+    params.id
+  )
+  if (access !== 'ok') {
+    return NextResponse.json({ error: 'Fund request not found' }, { status: 404 })
+  }
+
   try {
-    // Explicit cleanup so transfers go even if FK is still ON DELETE SET NULL
     const { error: tsError } = await auth.ctx.supabase
       .from('transfer_segments')
       .delete()

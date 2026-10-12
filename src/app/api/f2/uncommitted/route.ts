@@ -10,6 +10,14 @@ import {
   getUserGrantAccess,
 } from '@/lib/userGrantAccess'
 import { getUserRoomAccess } from '@/lib/userRoomAccess'
+import {
+  applyOrganizationIdFilter,
+  coordinatorWriteForbiddenResponse,
+  getUserOrgScope,
+  isDisclosedCoordinator,
+  orgScopeBlocksAllData,
+  orgScopeBlocksResourceType,
+} from '@/lib/canvas/orgScope'
 import { emitF123Audit, pickChangedAuditFields } from '@/lib/f123Audit'
 
 const F2_PATCH_AUDIT_SELECT =
@@ -64,17 +72,26 @@ export async function GET(request: Request) {
       dateTo = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
     }
 
-    const [{ allowedStateNames }, grantAccess, roomAccess] = await Promise.all([
+    const [{ allowedStateNames }, grantAccess, roomAccess, orgScope] = await Promise.all([
       getUserStateAccess(),
       getUserGrantAccess(),
       getUserRoomAccess(),
+      getUserOrgScope(),
     ])
+
+    if (orgScopeBlocksAllData(orgScope) || orgScopeBlocksResourceType(orgScope, 'f1')) {
+      return NextResponse.json([])
+    }
 
     if (roomAccess.mode === 'none') {
       return NextResponse.json([])
     }
 
-    if (roomAccess.mode !== 'room' && grantAccess.mode === 'none') {
+    if (
+      orgScope.mode !== 'disclosed' &&
+      roomAccess.mode !== 'room' &&
+      grantAccess.mode === 'none'
+    ) {
       return NextResponse.json([])
     }
 
@@ -83,6 +100,7 @@ export async function GET(request: Request) {
         .from('err_projects')
         .select(`
           id,
+          organization_id,
           err_id,
           date,
           state,
@@ -104,12 +122,18 @@ export async function GET(request: Request) {
         .eq('status', 'pending')
         .order('submitted_at', { ascending: false })
 
+      query = applyOrganizationIdFilter(query, orgScope, 'organization_id', 'f1')
+
       // Base ERR: emergency_room_id only. Partner: grant_grid_id only (never state scope).
       if (roomAccess.mode === 'room') {
         query = query.eq('emergency_room_id', roomAccess.emergencyRoomId)
-      } else if (grantAccess.mode === 'partner') {
+      } else if (orgScope.mode !== 'disclosed' && grantAccess.mode === 'partner') {
         query = applyGrantGridIdFilter(query, grantAccess)
-      } else if (allowedStateNames !== null && allowedStateNames.length > 0) {
+      } else if (
+        orgScope.mode !== 'disclosed' &&
+        allowedStateNames !== null &&
+        allowedStateNames.length > 0
+      ) {
         query = query.in('state', allowedStateNames)
       }
       if (state) {
@@ -192,6 +216,8 @@ export async function GET(request: Request) {
 // PATCH /api/f2/uncommitted - Update F1 expenses, grant call, or metadata
 export async function PATCH(request: Request) {
   try {
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
+
     const body = await request.json()
     const { id, expenses, grant_call_id, approval_file_key, donor_id, funding_cycle_id, grant_serial_id, workplan_number, cycle_state_allocation_id, grant_id, file_key } = body
 
@@ -295,6 +321,8 @@ export async function PATCH(request: Request) {
 // POST /api/f2/uncommitted/commit - Commit selected F1s
 export async function POST(request: Request) {
   try {
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
+
     const supabase = getSupabaseRouteClient()
     const { f1_ids } = await request.json()
     
@@ -329,6 +357,7 @@ export async function DELETE(request: Request) {
   try {
     const perm = await requirePermission('f2_commit')
     if (perm instanceof NextResponse) return perm
+    if (isDisclosedCoordinator(await getUserOrgScope())) return coordinatorWriteForbiddenResponse()
 
     const supabase = getSupabaseRouteClient()
     const { id } = await request.json()

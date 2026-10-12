@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
-import { forbidIfPartner } from '@/lib/routeHandlerAuth'
+import {
+  assertAnyPermission,
+  requireNonPartnerSession,
+} from '@/lib/routeHandlerAuth'
 
 export async function POST(req: Request) {
   try {
-    const partnerBlock = await forbidIfPartner()
-    if (partnerBlock) return partnerBlock
+    const auth = await requireNonPartnerSession()
+    if (auth instanceof NextResponse) return auth
+    try {
+      assertAnyPermission(auth, ['f1_upload', 'f1_assign_grant', 'f2_commit', 'f2_edit_project'])
+    } catch {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const supabase = getSupabaseRouteClient()
     const { base_pattern, preview_only = false } = await req.json()
