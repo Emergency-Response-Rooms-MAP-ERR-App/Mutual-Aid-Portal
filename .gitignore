@@ -54,8 +54,7 @@ next-env.d.ts
 # Supabase CLI (local link state — do not commit)
 .supabase/
 
-# Production schema lives in private sudan-err-portal-schema repo
-/supabase/migrations/
+# Migrations are committed (see docs/db-workflow.md); local CLI config is not
 /supabase/config.toml
 
 # Cursor MCP — local only (contains project ref)
