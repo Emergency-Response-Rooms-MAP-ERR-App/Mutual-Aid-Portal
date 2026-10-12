@@ -22,6 +22,9 @@ export function useListProjectsModal({
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set())
   const [listProjectsActionLoading, setListProjectsActionLoading] = useState(false)
   const [updatingGrantSegmentId, setUpdatingGrantSegmentId] = useState<string | null>(null)
+  const [editingSerialId, setEditingSerialId] = useState<string | null>(null)
+  const [serialDraft, setSerialDraft] = useState('')
+  const [savingSerial, setSavingSerial] = useState(false)
 
   const mapMouProjects = (
     projects: Array<{
@@ -57,6 +60,7 @@ export function useListProjectsModal({
     setListProjectsMouAssigned(false)
     setListProjectsAddMode(false)
     setSelectedCandidates(new Set())
+    setEditingSerialId(null)
     setListProjectsLoading(true)
     try {
       const res = await fetch(`/api/f3/mous/${mou.id}`)
@@ -202,6 +206,50 @@ export function useListProjectsModal({
     }
   }
 
+  // Issue #28: edit serial number after the MOU is assigned
+  const startEditSerial = (projectId: string) => {
+    setEditingSerialId(projectId)
+    setSerialDraft(listProjectsList.find((p) => p.id === projectId)?.grant_id ?? '')
+  }
+
+  const cancelEditSerial = () => {
+    setEditingSerialId(null)
+    setSerialDraft('')
+  }
+
+  const saveSerial = async () => {
+    if (!editingSerialId) return
+    const projectId = editingSerialId
+    const next = serialDraft.trim().toUpperCase()
+    const prev = listProjectsList.find((p) => p.id === projectId)?.grant_id ?? ''
+    if (next === prev) {
+      cancelEditSerial()
+      return
+    }
+    if (!confirm(`Change serial ${prev} to ${next}?`)) return
+
+    setSavingSerial(true)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/serial`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serial: next }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Failed to change serial number')
+      setListProjectsList((rows) =>
+        rows.map((p) => (p.id === projectId ? { ...p, grant_id: data.serial } : p))
+      )
+      cancelEditSerial()
+      await fetchMous()
+    } catch (e) {
+      console.error(e)
+      alert(e instanceof Error ? e.message : 'Failed to change serial number')
+    } finally {
+      setSavingSerial(false)
+    }
+  }
+
   return {
     listProjectsModalOpen,
     listProjectsMouId,
@@ -222,5 +270,12 @@ export function useListProjectsModal({
     startAddMode,
     addSelectedProjects,
     updateProjectGrantSegment,
+    editingSerialId,
+    serialDraft,
+    setSerialDraft,
+    savingSerial,
+    startEditSerial,
+    cancelEditSerial,
+    saveSerial,
   }
 }
