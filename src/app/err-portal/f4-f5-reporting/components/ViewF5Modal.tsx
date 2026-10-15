@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table'
 import { FileText } from 'lucide-react'
+import { FillDownButton } from './FillDownButton'
 import { supabase } from '@/lib/supabaseClient'
 import { useTranslation } from 'react-i18next'
 import {
@@ -400,11 +401,12 @@ export default function ViewF5Modal({ reportId, open, onOpenChange, onSaved }: V
                 <TableHeader>
                   <TableRow>
                     <TableHead>Activity Name</TableHead>
-                    <TableHead>Sector</TableHead>
+                    {/* Issue #120: fill down sector / dates (edit mode only) */}
+                    <TableHead>Sector{isEditing && <FillDownButton rows={reachDraft} field="category" onApply={setReachDraft} />}</TableHead>
                     <TableHead>Goal/Details of Activity</TableHead>
                     <TableHead>Implementation Location</TableHead>
-                    <TableHead>Start</TableHead>
-                    <TableHead>End</TableHead>
+                    <TableHead>Start{isEditing && <FillDownButton rows={reachDraft} field="start_date" onApply={setReachDraft} />}</TableHead>
+                    <TableHead>End{isEditing && <FillDownButton rows={reachDraft} field="end_date" onApply={setReachDraft} />}</TableHead>
                     <TableHead>Beneficiaries (Individuals)</TableHead>
                     <TableHead>Beneficiaries (Families)</TableHead>
                     {isEditing && <TableHead className="text-right">Actions</TableHead>}

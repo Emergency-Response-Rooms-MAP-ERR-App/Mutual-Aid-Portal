@@ -20,6 +20,7 @@ import { f5ParseSnips, f5Save, f5UploadInit } from '../f5Wizard/f5WizardApi'
 import { useF5WizardViewerPages } from '../f5Wizard/useF5WizardViewerPages'
 import { useF5WizardDrag, type WizardDragState } from '../f5Wizard/useF5WizardDrag'
 import { WizardFullscreenShell, WIZARD_FULLSCREEN_DIALOG_CLASS } from './WizardFullscreenShell'
+import { FillDownButton } from './FillDownButton'
 import {
   clampDateInputToToday,
   getTodayDateInputValue,
@@ -1171,11 +1172,12 @@ export default function UploadF5Modal({ open, onOpenChange, onSaved, initialProj
                     <TableHeader>
                       <TableRow>
                         <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.activity_name')}</TableHead>
-                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.sector')}</TableHead>
+                        {/* Issue #120: fill down sector / dates */}
+                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.sector')}<FillDownButton rows={reachDraft} field="category" onApply={setReachDraft} /></TableHead>
                         <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.activity_goal')}</TableHead>
                         <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.location')}</TableHead>
-                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.start')}</TableHead>
-                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.end')}</TableHead>
+                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.start')}<FillDownButton rows={reachDraft} field="start_date" onApply={setReachDraft} /></TableHead>
+                        <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.end')}<FillDownButton rows={reachDraft} field="end_date" onApply={setReachDraft} /></TableHead>
                         <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.beneficiaries_individuals')}</TableHead>
                         <TableHead className="py-1 px-2 text-xs select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.beneficiaries_families')}</TableHead>
                         <TableHead className="py-1 px-2 text-xs text-right select-text" style={{ userSelect: 'text' }}>{t('f5.preview.activities.cols.actions')}</TableHead>
