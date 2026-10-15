@@ -119,7 +119,7 @@ function F3MOUsPageContent() {
 
       <MouPreviewDialog {...preview} canEditMou={canEditMou} />
 
-      <ListProjectsDialog {...listProjects} />
+      <ListProjectsDialog {...listProjects} canEditSerial={canReassignGrant} />
 
       <AssignGrantDialog {...assignment} />
 
