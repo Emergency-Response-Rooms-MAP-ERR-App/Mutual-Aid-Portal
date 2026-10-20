@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { readSharedRollupCache } from '../rollup/route'
+import { readSharedRollupCache } from '@/lib/rollupSharedCache'
 import { getUserGrantAccess } from '@/lib/userGrantAccess'
 import { getUserRoomAccess } from '@/lib/userRoomAccess'
 

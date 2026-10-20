@@ -17,7 +17,10 @@ import {
 import { getActivityAndCategoryLists, getSectorWithHighestAmount } from '@/lib/plannedActivitiesExpenses'
 import { isActivityShifted } from '@/lib/activityShift'
 import { pickF5TextForEnUi } from '@/lib/storiesEnDisplay'
-import { loadProjectPaymentSummaries } from '@/lib/mouPaymentConfirmations'
+import {
+  effectiveProjectTransferDate,
+  loadProjectPaymentSummariesBatched,
+} from '@/lib/mouPaymentConfirmations'
 
 function sumPlanFromPlannedActivities(planned: any): number {
   try {
@@ -263,11 +266,8 @@ export async function GET(request: Request) {
     }
     let transferDateByProject: Record<string, string> = {}
     let rateByProject: Record<string, number> = {}
-    if (mouIds.length > 0) {
-      const summaries = await loadProjectPaymentSummaries(supabase, {
-        projectIds,
-        mouIds,
-      })
+    if (projectIds.length > 0) {
+      const summaries = await loadProjectPaymentSummariesBatched(supabase, projectIds, mouIds)
       for (const [projectId, summary] of Object.entries(summaries)) {
         if (summary.transfer_date) transferDateByProject[projectId] = summary.transfer_date
         if (summary.exchange_rate != null) rateByProject[projectId] = summary.exchange_rate
@@ -439,7 +439,12 @@ export async function GET(request: Request) {
     const list = (rows || []).map((p: any) => {
       const amounts = amountsByProject[p.id] || { amount_usd: 0, amount_sdg: 0, f4_count: 0 }
       const dateVal = p.date ?? p.date_transfer ?? dateByProject[p.id] ?? null
-      const transfer_date = p.date_transfer ?? transferDateByProject[p.id] ?? null
+      const transfer_date = effectiveProjectTransferDate(p.date_transfer, {
+        transfer_date: transferDateByProject[p.id] ?? null,
+        exchange_rate: rateByProject[p.id] ?? null,
+        file_path: null,
+        confirmation_count: transferDateByProject[p.id] ? 1 : 0,
+      })
       const plan = p.source === 'mutual_aid_portal'
         ? sumPlanFromExpenses(p.expenses)
         : sumPlanFromPlannedActivities(p.planned_activities)

@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseRouteClient } from '@/lib/supabaseRouteClient'
 import { pickF5TextForEnUi, pickReachTextForEnUi } from '@/lib/storiesEnDisplay'
-import { loadProjectPaymentSummaries } from '@/lib/mouPaymentConfirmations'
+import {
+  effectiveProjectTransferDate,
+  loadProjectPaymentSummaries,
+} from '@/lib/mouPaymentConfirmations'
 
 const OVERDUE_DAYS_AFTER_TRANSFER = 32
 
@@ -317,32 +320,30 @@ export async function GET(
 
       console.log('[overview/project] project load', Date.now() - t0, 'ms')
 
-      // Load MOU file keys and per-project transfer date from payment confirmations
+      // MOU payment confirmations + legacy mous.payment_confirmation_file / transfer_date
+      const paymentSummaries = await loadProjectPaymentSummaries(supabase, {
+        projectIds: [id],
+        mouIds: project.mou_id ? [project.mou_id] : undefined,
+      })
+      const payment = paymentSummaries[id]
+
       let mouFileKeys: { payment_confirmation_file: string | null; signed_mou_file_key: string | null } | null = null
-      let transferDateFromMou: string | null = null
       if (project.mou_id) {
         const { data: mou, error: mouErr } = await supabase
           .from('mous')
           .select('signed_mou_file_key')
           .eq('id', project.mou_id)
           .single()
-        const paymentSummaries = await loadProjectPaymentSummaries(supabase, {
-          projectIds: [id],
-          mouIds: [project.mou_id],
-        })
-        const payment = paymentSummaries[id]
         if (!mouErr && mou) {
           mouFileKeys = {
             payment_confirmation_file: payment?.file_path || null,
             signed_mou_file_key: mou.signed_mou_file_key || null,
           }
-          transferDateFromMou = payment?.transfer_date || null
-        } else if (payment) {
+        } else if (payment?.file_path) {
           mouFileKeys = {
-            payment_confirmation_file: payment.file_path || null,
+            payment_confirmation_file: payment.file_path,
             signed_mou_file_key: null,
           }
-          transferDateFromMou = payment.transfer_date || null
         }
       }
 
@@ -481,13 +482,13 @@ export async function GET(
       }
 
       // Compute overdue for portal project: due = transfer + 32 days; overdue when past due and not (F4 and F5 complete)
-      const effectiveTransferDate = project.date_transfer || transferDateFromMou || null
+      const effectiveTransferDate = effectiveProjectTransferDate(project.date_transfer, payment)
       const f4Complete = (summariesWithExpenses?.length ?? 0) > 0 || isStatusCompleteForOverdue(project.f4_status)
       const f5Complete = (f5ReportsWithReach?.length ?? 0) > 0 || isStatusCompleteForOverdue(project.f5_status)
       const { days_overdue } = computeOverdue(effectiveTransferDate, f4Complete, f5Complete)
       const projectWithOverdue = {
         ...project,
-        date_transfer: effectiveTransferDate || project.date_transfer,
+        date_transfer: effectiveTransferDate,
         overdue: days_overdue != null ? String(days_overdue) : null,
         days_overdue: days_overdue ?? null
       }

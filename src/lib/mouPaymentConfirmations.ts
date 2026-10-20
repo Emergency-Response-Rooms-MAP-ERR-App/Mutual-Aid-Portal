@@ -31,6 +31,53 @@ export type ProjectPaymentSummary = {
   confirmation_count: number
 }
 
+/** err_projects.date_transfer (legacy) then MOU / payment confirmation dates. */
+export function effectiveProjectTransferDate(
+  errProjectsDateTransfer: string | null | undefined,
+  paymentSummary: ProjectPaymentSummary | null | undefined
+): string | null {
+  const fromProject =
+    errProjectsDateTransfer != null && String(errProjectsDateTransfer).trim() !== ''
+      ? String(errProjectsDateTransfer).trim()
+      : null
+  if (fromProject) return fromProject
+  const fromPayment = paymentSummary?.transfer_date
+  if (fromPayment != null && String(fromPayment).trim() !== '') {
+    return String(fromPayment).trim()
+  }
+  return null
+}
+
+function pickEarlierTransferDate(a: string | null | undefined, b: string | null | undefined): string | null {
+  const sa = a != null && String(a).trim() !== '' ? String(a).trim() : null
+  const sb = b != null && String(b).trim() !== '' ? String(b).trim() : null
+  if (!sa) return sb
+  if (!sb) return sa
+  return sa <= sb ? sa : sb
+}
+
+function mergePaymentSummary(
+  prev: ProjectPaymentSummary,
+  next: ProjectPaymentSummary
+): ProjectPaymentSummary {
+  return {
+    transfer_date: pickEarlierTransferDate(prev.transfer_date, next.transfer_date),
+    exchange_rate: next.exchange_rate ?? prev.exchange_rate,
+    file_path: prev.file_path || next.file_path,
+    confirmation_count: Math.max(prev.confirmation_count ?? 0, next.confirmation_count ?? 0),
+  }
+}
+
+function mergePaymentSummaryRecords(
+  into: Record<string, ProjectPaymentSummary>,
+  part: Record<string, ProjectPaymentSummary>
+): void {
+  for (const [projectId, summary] of Object.entries(part)) {
+    const prev = into[projectId]
+    into[projectId] = prev ? mergePaymentSummary(prev, summary) : summary
+  }
+}
+
 /** transfer_date + exchange_rate only (F4/F5 reporting list and shared aggregation). */
 export type ReportingPaymentSlice = {
   transfer_date: string | null
@@ -194,6 +241,8 @@ export function buildPaymentFileStoragePath(opts: {
   return `f3-mous/${opts.mouId}/${opts.projectId}/${opts.confirmationId}/${id}-${safe}`
 }
 
+const CONFIRMED_ID_CHUNK = 200
+
 /**
  * Load confirmation summaries keyed by project_id.
  * Prefers relational rows; falls back to mous.payment_confirmation_file JSON for projects
@@ -214,49 +263,64 @@ export async function loadProjectPaymentSummaries(
   const projectIds = opts.projectIds?.filter(Boolean) || []
   const mouIds = opts.mouIds?.filter(Boolean) || []
 
-  let confirmations: MouPaymentConfirmationRow[] = []
-  if (projectIds.length > 0 || mouIds.length > 0) {
+  const confirmationById = new Map<string, MouPaymentConfirmationRow>()
+
+  const mapConfirmationRows = (data: any[] | null): MouPaymentConfirmationRow[] =>
+    (data || []).map((row: any) => ({
+      ...row,
+      exchange_rate:
+        row.exchange_rate == null || Number.isNaN(Number(row.exchange_rate))
+          ? null
+          : Number(row.exchange_rate),
+      files: Array.isArray(row.mou_payment_files) ? row.mou_payment_files : [],
+    }))
+
+  const fetchConfirmationsIn = async (column: 'project_id' | 'mou_id', ids: string[]) => {
+    if (!ids.length) return
+    const selectWithFsp =
+      'id, mou_id, project_id, exchange_rate, transfer_date, fsp_id, created_by, created_at, updated_at, mou_payment_files(id, payment_confirmation_id, file_path, original_name, file_type, file_size, uploaded_by, uploaded_at)'
+    const selectNoFsp =
+      'id, mou_id, project_id, exchange_rate, transfer_date, created_by, created_at, updated_at, mou_payment_files(id, payment_confirmation_id, file_path, original_name, file_type, file_size, uploaded_by, uploaded_at)'
+
     let query = supabase
       .from('mou_payment_confirmations')
-      .select(
-        'id, mou_id, project_id, exchange_rate, transfer_date, fsp_id, created_by, created_at, updated_at, mou_payment_files(id, payment_confirmation_id, file_path, original_name, file_type, file_size, uploaded_by, uploaded_at)'
-      )
+      .select(selectWithFsp)
       .order('transfer_date', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: true })
-
-    if (projectIds.length > 0) {
-      query = query.in('project_id', projectIds)
-    } else if (mouIds.length > 0) {
-      query = query.in('mou_id', mouIds)
-    }
+      .in(column, ids)
 
     let { data, error } = await query
     if (error && /fsp_id/i.test(error.message || '')) {
       const retry = await supabase
         .from('mou_payment_confirmations')
-        .select(
-          'id, mou_id, project_id, exchange_rate, transfer_date, created_by, created_at, updated_at, mou_payment_files(id, payment_confirmation_id, file_path, original_name, file_type, file_size, uploaded_by, uploaded_at)'
-        )
+        .select(selectNoFsp)
         .order('transfer_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: true })
-        .in(projectIds.length > 0 ? 'project_id' : 'mou_id', projectIds.length > 0 ? projectIds : mouIds)
+        .in(column, ids)
       data = (retry.data || []).map((row) => ({ ...row, fsp_id: null }))
       error = retry.error
     }
     if (error) {
-      // Table may not exist yet before migration — fall through to legacy JSON.
       console.warn('[mouPaymentConfirmations] relational load failed, using legacy', error.message)
-    } else {
-      confirmations = (data || []).map((row: any) => ({
-        ...row,
-        exchange_rate:
-          row.exchange_rate == null || Number.isNaN(Number(row.exchange_rate))
-            ? null
-            : Number(row.exchange_rate),
-        files: Array.isArray(row.mou_payment_files) ? row.mou_payment_files : [],
-      }))
+      return
+    }
+    for (const row of mapConfirmationRows(data)) {
+      if (row.id) confirmationById.set(row.id, row)
     }
   }
+
+  if (projectIds.length > 0 || mouIds.length > 0) {
+    if (projectIds.length > 0) {
+      for (let i = 0; i < projectIds.length; i += CONFIRMED_ID_CHUNK) {
+        await fetchConfirmationsIn('project_id', projectIds.slice(i, i + CONFIRMED_ID_CHUNK))
+      }
+    }
+    if (mouIds.length > 0) {
+      await fetchConfirmationsIn('mou_id', mouIds)
+    }
+  }
+
+  const confirmations = [...confirmationById.values()]
 
   const byProject = new Map<string, MouPaymentConfirmationRow[]>()
   for (const c of confirmations) {
@@ -360,7 +424,30 @@ export async function loadProjectPaymentSummaries(
   return out
 }
 
-const CONFIRMED_ID_CHUNK = 200
+/**
+ * Load payment summaries for many portal projects: relational confirmations (by project and MOU),
+ * plus legacy `mous.payment_confirmation_file` / `mous.transfer_date` fallback.
+ */
+export async function loadProjectPaymentSummariesBatched(
+  supabase: SupabaseClient,
+  projectIds: string[],
+  mouIds?: string[]
+): Promise<Record<string, ProjectPaymentSummary>> {
+  const merged: Record<string, ProjectPaymentSummary> = {}
+  const mids = mouIds?.filter(Boolean) || []
+  if (mids.length > 0) {
+    mergePaymentSummaryRecords(merged, await loadProjectPaymentSummaries(supabase, { mouIds: mids }))
+  }
+  const pids = projectIds.filter(Boolean)
+  for (let i = 0; i < pids.length; i += CONFIRMED_ID_CHUNK) {
+    const batch = pids.slice(i, i + CONFIRMED_ID_CHUNK)
+    mergePaymentSummaryRecords(
+      merged,
+      await loadProjectPaymentSummaries(supabase, { projectIds: batch })
+    )
+  }
+  return merged
+}
 
 /** Project ids with at least one confirmation (relational preferred, legacy JSON fallback). */
 export function confirmedProjectIdsFromSummaries(

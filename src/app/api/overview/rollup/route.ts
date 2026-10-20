@@ -9,13 +9,15 @@ import {
 } from '@/lib/f4ExpenseDisplay'
 import { normalizeStateName } from '@/lib/normalizeStateName'
 import { resolveProjectCompletionDate } from '@/lib/projectStatus'
-import { loadProjectPaymentSummaries } from '@/lib/mouPaymentConfirmations'
+import {
+  effectiveProjectTransferDate,
+  loadProjectPaymentSummariesBatched,
+  type ProjectPaymentSummary,
+} from '@/lib/mouPaymentConfirmations'
+import { readSharedRollupCache, writeSharedRollupCache } from '@/lib/rollupSharedCache'
 
 /** PostgREST `.in()` with hundreds of UUIDs can exceed URL limits and return empty data. */
 const SUPABASE_IN_BATCH = 80
-
-/** Cache duration in milliseconds (3 minutes) */
-const CACHE_DURATION_MS = 3 * 60 * 1000
 
 function getCacheKey(
   allowedStates: string[] | null,
@@ -25,11 +27,12 @@ function getCacheKey(
   // v2: includes locality on rows + localityAggregations
   // v3: partner grant scope segment so partners never share admin/state caches
   // v4: coordinator disclosure scope in grantScopeKey (access_grants)
+  // v5: transfer dates from err_projects + mou payment confirmations (by project id)
   const scope =
     !allowedStates || allowedStates.length === 0
       ? 'all_states'
       : [...allowedStates].sort().join(',')
-  const base = `v4|${scope}|${grantScopeKey}`
+  const base = `v5|${scope}|${grantScopeKey}`
   // Base ERR room scope must never share the global/state cache entry
   return roomScopeKey === 'n/a' ? base : `${base}|room:${roomScopeKey}`
 }
@@ -53,52 +56,6 @@ function emptyRollupPayload() {
     stateAggregations: [],
     localityAggregations: [],
     roomAggregations: [],
-  }
-}
-
-export async function readSharedRollupCache(cacheKey: string): Promise<any | null> {
-  try {
-    const admin = getSupabaseAdmin()
-    const { data, error } = await admin
-      .from('rollup_cache')
-      .select('payload, updated_at')
-      .eq('cache_key', cacheKey)
-      .maybeSingle()
-
-    if (error) {
-      console.error('[rollup] shared cache read failed:', error.message)
-      return null
-    }
-    if (!data?.payload || !data.updated_at) return null
-
-    const ageMs = Date.now() - new Date(data.updated_at).getTime()
-    if (ageMs > CACHE_DURATION_MS || ageMs < 0) return null
-
-    return data.payload
-  } catch (e) {
-    console.error('[rollup] shared cache read error:', e)
-    return null
-  }
-}
-
-async function writeSharedRollupCache(cacheKey: string, payload: any): Promise<void> {
-  try {
-    const admin = getSupabaseAdmin()
-    const { error } = await admin.from('rollup_cache').upsert(
-      {
-        cache_key: cacheKey,
-        payload,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'cache_key' }
-    )
-    if (error) {
-      console.error('[rollup] shared cache write failed:', error.message)
-      return
-    }
-    console.log('[rollup] Data cached successfully (shared)')
-  } catch (e) {
-    console.error('[rollup] shared cache write error:', e)
   }
 }
 
@@ -517,8 +474,8 @@ export async function GET(request: Request) {
             return rows
           })()
         : Promise.resolve([]),
-      mouIds.length > 0
-        ? loadProjectPaymentSummaries(supabase, { mouIds })
+      projectIds.length > 0
+        ? loadProjectPaymentSummariesBatched(supabase, projectIds, mouIds)
         : Promise.resolve({}),
       fetchPortalSummariesForProjects(dataSupabase, projectIds),
       fetchF5ReportsForProjects(dataSupabase, projectIds)
@@ -527,11 +484,8 @@ export async function GET(request: Request) {
     
     // Process MOU results
     let mouCodeById: Record<string, string> = {}
-    let transferDateByProject: Record<string, string> = {}
     for (const m of mousRows || []) mouCodeById[(m as any).id] = (m as any).mou_code
-    for (const [projectId, summary] of Object.entries(paymentSummaries as Record<string, { transfer_date?: string | null }>)) {
-      if (summary.transfer_date) transferDateByProject[projectId] = summary.transfer_date
-    }
+    const paymentSummaryByProject = paymentSummaries as Record<string, ProjectPaymentSummary>
 
     // Filter historical data by state AFTER normalization (like Pool Overview By State)
     let filteredHistoricalData = allHistoricalData || []
@@ -710,7 +664,10 @@ export async function GET(request: Request) {
       const f5_status = (p.f5_status != null ? String(p.f5_status).trim().toLowerCase() : null) || 'waiting'
       const f4Complete = isStatusCompleteForOverdue(f4_status)
       const f5Complete = isStatusCompleteForOverdue(f5_status)
-      const effectiveTransferDate = p.date_transfer || transferDateByProject[p.id] || null
+      const effectiveTransferDate = effectiveProjectTransferDate(
+        p.date_transfer,
+        paymentSummaryByProject[p.id]
+      )
       const { is_overdue, days_overdue } = computeOverdue(effectiveTransferDate, f4Complete, f5Complete)
       const { activity_list, expense_category_list } = getActivityAndCategoryLists(p.planned_activities, p.expenses)
       const planned_sector = getSectorWithHighestAmount(p.planned_activities, p.expenses)
