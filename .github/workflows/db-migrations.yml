@@ -1,0 +1,68 @@
+# Applies supabase/migrations to dev on every merge to main, then to production
+# once a reviewer approves the "production" environment.
+#
+# Repo settings this needs:
+#   Secrets:   SUPABASE_ACCESS_TOKEN, DEV_DB_PASSWORD, PROD_DB_PASSWORD
+#   Variables: DEV_PROJECT_REF=khavbdocjufkyhwpiniw, PROD_PROJECT_REF=lhwxovefpwxylulnptwo
+#   Environment "production" with required reviewer @solema247
+
+name: Database migrations
+
+on:
+  pull_request:
+    paths: ["supabase/migrations/**"]
+  push:
+    branches: [main]
+    paths: ["supabase/migrations/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: db-migrations
+  cancel-in-progress: false
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+jobs:
+  plan:
+    name: Pending migrations (dev)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.30.4
+      - run: supabase link --project-ref "${{ vars.DEV_PROJECT_REF }}"
+      - run: supabase db push --dry-run
+
+  dev:
+    name: Apply to dev
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_PASSWORD: ${{ secrets.DEV_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.30.4
+      - run: supabase link --project-ref "${{ vars.DEV_PROJECT_REF }}"
+      - run: supabase db push
+
+  production:
+    name: Apply to production
+    needs: dev
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SUPABASE_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.30.4
+      - run: supabase link --project-ref "${{ vars.PROD_PROJECT_REF }}"
+      - run: supabase db push

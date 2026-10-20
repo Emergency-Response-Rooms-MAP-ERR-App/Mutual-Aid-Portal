@@ -1,5 +1,4 @@
-# Supabase (public repo)
+# Supabase
 
-Production schema SQL is **not stored here**.
-
-See [docs/db-workflow.md](../docs/db-workflow.md) — migrations live in the private **`sudan-err-portal-schema`** repository.
+Migrations in `migrations/` are applied to dev, then production, by GitHub Actions. See
+[docs/db-workflow.md](../docs/db-workflow.md).
