@@ -261,7 +261,14 @@
           "actions": "Actions",
           "delete": "Delete"
         },
-        "f1_planned_hint": "F1 planned sector(s)"
+        "f1_planned_hint": "F1 planned sector(s)",
+        "fill_down": {
+          "title": "Fill down: copy the first value to other rows",
+          "no_value": "Set a value in the first row first",
+          "copy_value": "Copy \"{{value}}\" to:",
+          "empty_rows": "Empty rows ({{count}})",
+          "all_rows": "All rows (overwrites {{count}})"
+        }
       },
       "demographics": {
         "title": "Additional Beneficiary Breakdown",
