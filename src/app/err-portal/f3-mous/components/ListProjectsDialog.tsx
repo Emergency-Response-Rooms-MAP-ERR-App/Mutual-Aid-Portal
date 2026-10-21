@@ -2,12 +2,15 @@
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus } from 'lucide-react'
+import { Check, Pencil, Plus, X } from 'lucide-react'
 import { GrantSegmentSelect } from '@/app/err-portal/f1-work-plans/components/GrantSegmentSelect'
 import type { useListProjectsModal } from '../hooks/useListProjectsModal'
 
-type ListProjectsDialogProps = ReturnType<typeof useListProjectsModal>
+type ListProjectsDialogProps = ReturnType<typeof useListProjectsModal> & {
+  canEditSerial?: boolean
+}
 
 export default function ListProjectsDialog(props: ListProjectsDialogProps) {
   const {
@@ -28,6 +31,14 @@ export default function ListProjectsDialog(props: ListProjectsDialogProps) {
     addSelectedProjects,
     setListProjectsAddMode,
     updateProjectGrantSegment,
+    editingSerialId,
+    serialDraft,
+    setSerialDraft,
+    savingSerial,
+    startEditSerial,
+    cancelEditSerial,
+    saveSerial,
+    canEditSerial = false,
   } = props
 
   const grantSegmentCell = (projectId: string, grantSegment: string | null) => (
@@ -38,6 +49,50 @@ export default function ListProjectsDialog(props: ListProjectsDialogProps) {
         disabled={updatingGrantSegmentId === projectId || listProjectsActionLoading}
         onValueChange={(v) => updateProjectGrantSegment(projectId, v)}
       />
+    </TableCell>
+  )
+
+  // Issue #28: inline serial number edit for assigned MOUs
+  const serialCell = (projectId: string, serial: string | null) => (
+    <TableCell className="font-mono whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+      {editingSerialId === projectId ? (
+        <div className="flex items-center gap-1">
+          <Input
+            autoFocus
+            value={serialDraft}
+            onChange={(e) => setSerialDraft(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveSerial()
+              if (e.key === 'Escape') cancelEditSerial()
+            }}
+            disabled={savingSerial}
+            placeholder="LCC-DONOR-ST-MMYY-0001"
+            className="h-7 text-xs font-mono w-[200px]"
+          />
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={savingSerial} onClick={saveSerial} title="Save serial">
+            <Check className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={savingSerial} onClick={cancelEditSerial} title="Cancel">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          <span>{serial ?? '-'}</span>
+          {canEditSerial && serial?.startsWith('LCC-') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              disabled={savingSerial || editingSerialId !== null}
+              onClick={() => startEditSerial(projectId)}
+              title="Edit serial number"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      )}
     </TableCell>
   )
 
@@ -80,7 +135,7 @@ export default function ListProjectsDialog(props: ListProjectsDialogProps) {
                             <TableCell className="text-right font-mono whitespace-nowrap">{p.amount_usd != null ? p.amount_usd.toLocaleString() : '—'}</TableCell>
                             <TableCell className="max-w-[120px] truncate" title={p.categories}>{p.categories}</TableCell>
                             {grantSegmentCell(p.id, p.grant_segment)}
-                            <TableCell className="font-mono whitespace-nowrap">{p.grant_id ?? '-'}</TableCell>
+                            {serialCell(p.id, p.grant_id)}
                           </TableRow>
                         ))
                       )}
